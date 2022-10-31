@@ -1,2 +1,113 @@
 # Multi-Master-HA-Kubernetes-Setup
 In this show, we will look into that how can we deploy the Multi-Master HA Kubernetes on CentOS/Redhat. 
+swap
+
+Installing Container Runtime - Containerd
+```bash   
+#Ref: https://github.com/containerd/containerd/blob/main/docs/getting-started.md - centos section
+#Ref: https://docs.docker.com/engine/install/centos/
+yum install -y yum-utils
+yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+yum install -y http://mirror.centos.org/centos/7/extras/x86_64/Packages/container-selinux-2.107-3.el7.noarch.rpm
+yum install -y containerd.io
+```
+```bash   
+containerd config default | tee /etc/containerd/config.toml
+sed -i 's/            SystemdCgroup = false/            SystemdCgroup = true/' /etc/containerd/config.toml
+systemctl restart containerd
+```
+
+Install kubectl, kubeadm, kubelet
+```bash
+cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
+[kubernetes]
+name=Kubernetes
+baseurl=https://packages.cloud.google.com/yum/repos/kubernetes-el7-\$basearch
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.cloud.google.com/yum/doc/yum-key.gpg https://packages.cloud.google.com/yum/doc/rpm-package-key.gpg
+exclude=kubelet kubeadm kubectl
+EOF
+```
+
+```bash
+# Set SELinux in permissive mode (effectively disabling it)
+sudo setenforce 0
+sudo sed -i 's/^SELINUX=enforcing$/SELINUX=permissive/' /etc/selinux/config
+
+sudo yum install -y kubelet-1.25.0-0 kubeadm-1.25.0-0 kubectl-1.25.0-0 --disableexcludes=kubernetes
+
+sudo systemctl enable --now kubelet
+```
+
+Enable kernel modules
+```bash
+cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
+
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+# sysctl params required by setup, params persist across reboots
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+
+# Apply sysctl params without reboot
+sudo sysctl --system
+```
+
+Setting parameters, Restart the services/daemons
+```bash
+systemctl restart containerd
+systemctl enable containerd
+systemctl status containerd
+
+
+echo 'KUBELET_EXTRA_ARGS="--fail-swap-on=false --container-runtime=remote --container-runtime-endpoint=/run/containerd/containerd.sock"' > /etc/sysconfig/kubelet
+systemctl daemon-reload
+systemctl restart containerd
+systemctl start kubelet
+```
+
+Proxy Setup (Optional: If the Kubernetes cluster is behind the proxy)
+```bash
+mkdir /etc/systemd/system/containerd.service.d
+cat << EOF > /etc/systemd/system/containerd.service.d/http_proxy.conf
+[Service]
+Environment="HTTP_PROXY=http://x.x.x.x:<PORT>/"
+Environment="HTTPS_PROXY=http://x.x.x.x:<PORT>/"
+EOF
+
+cat <<EOF > /etc/systemd/system/containerd.service.d/no_proxy.conf
+[Service]
+Environment="NO_PROXY=10.96.0.0/12,10.93.98.0/24,10.244.0.0/16,127.0.0.1"
+EOF
+
+systemctl daemon-reload
+systemctl restart containerd
+systemctl show conatinerd --property Environment
+```
+
+Pull Images (Optional: otherwise done by after issuing initialzing the cluster)
+```bash
+kubeadm config images pull --v=5
+unset https_proxy
+unset http_proxy
+```
+
+Initialize the kubernetes cluster
+```bash
+kubeadm init --control-plane-endpoint="<LoadBalancer>:6443" --pod-network-cidr=192.168.0.0/16 --v=5
+```
+
+Output with joining cluster commands
+```bash
+kubeadm join <LoadBalancer>:6443 --token <Token> \
+        --discovery-token-ca-cert-hash sha256:<hashvalue> \
+        --control-plane --certificate-key <hashvalue> --v=5
+```

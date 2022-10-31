@@ -1,8 +1,29 @@
-# Multi-Master-HA-Kubernetes-Setup
-In this show, we will look into that how can we deploy the Multi-Master HA Kubernetes on CentOS/Redhat. 
-swap
+# Multi-Master-HA-Kubernetes-Cluster-Setup
+In this show, we will look into that how can we deploy the Multi-Master HA Kubernetes cluster on CentOS/Redhat. 
 
-Installing Container Runtime - Containerd
+## Little Background 
+For just little background before going to run the commands on the nodes. Lets talk about the architechure for the cluster setup. For this setup, we have utilized the 8 Virtual Machines having RedHat 7.9 installed on it. The VMs are created on the VMware ESxi Hypervisor. The distribution of VMs are as following:
+
+1. 2 X HAProxy  
+2. 3 X Master Nodes
+3. 3 X Worker Nodes 
+
+In this setup, we tried to follow the best practices as recommended by the Kubernetes documentation. As we have the two ways to setup the High Available Kubernetes architechure, one of them is stacked architecure and other having seperate etcd cluster nodes. But for this setup, we make the things simple, as we follow to use the stacked architechure in which the etcd component is a part of same control plane having other components of the kubernetes. Furthermore, as the swap should be disabled in the kubernetes nodes, due to which we didn't configure the swap from scratch while creation of a VM. 
+
+We use the two nodes for HAProxy loadbalancer for Master nodes to ensure the HA at loadbalancer level too. All our pods will be run on the woker nodes. Why we need the three Master nodes? For little bit depth, its better to look into the documentation. We setup the cluster by using the kubeadm.
+
+
+#### Note: As human, we are vulnerable to make mistakes. My repositories are always open for the feedback or recommendation. Please suggest anything that help us to share with community.
+
+#### Note: The reference links are also provided with the commands that will redirect to official doumentation of the kubernetes. 
+
+## Installation 
+
+### Pre-Req
+In our setup, the control plane and worker nodes are with same specifications and network too. All have their hosts entries (including Loadbalancers) in /etc/hosts file and they should be sync. Furthermore all the commands will be executed on a single control plane node and after initializing the cluster, the other nodes will join based on their category. 
+
+### Installing Container Runtime - Containerd
+At this moment, we will not discuss that why we proceed to use the containerD rather then the docker Engine. Its will be good learning oppertunity to read its detail in documentation. 
 ```bash   
 #Ref: https://github.com/containerd/containerd/blob/main/docs/getting-started.md - centos section
 #Ref: https://docs.docker.com/engine/install/centos/
@@ -17,7 +38,7 @@ sed -i 's/            SystemdCgroup = false/            SystemdCgroup = true/' /
 systemctl restart containerd
 ```
 
-Install kubectl, kubeadm, kubelet
+### Install kubectl, kubeadm, kubelet
 ```bash
 cat <<EOF | sudo tee /etc/yum.repos.d/kubernetes.repo
 [kubernetes]
@@ -40,7 +61,8 @@ sudo yum install -y kubelet-1.25.0-0 kubeadm-1.25.0-0 kubectl-1.25.0-0 --disable
 sudo systemctl enable --now kubelet
 ```
 
-Enable kernel modules
+### Enable kernel modules
+These modules and configuration would allow the communications of pods.
 ```bash
 cat <<EOF | sudo tee /etc/modules-load.d/k8s.conf
 overlay
@@ -61,7 +83,8 @@ EOF
 sudo sysctl --system
 ```
 
-Setting parameters, Restart the services/daemons
+### Setting parameters, Restart the services/daemons
+To be more honest, I was stuck to set the parameter values for the kubelet. So one of my friend help me in this regard. For better understanding, please share your knowledge for it. 
 ```bash
 systemctl restart containerd
 systemctl enable containerd
@@ -74,7 +97,8 @@ systemctl restart containerd
 systemctl start kubelet
 ```
 
-Proxy Setup (Optional: If the Kubernetes cluster is behind the proxy)
+### Proxy Setup (Optional: If the Kubernetes cluster is behind the proxy)
+This step is optional but become crucial when you have setup behind proxy server.
 ```bash
 mkdir /etc/systemd/system/containerd.service.d
 cat << EOF > /etc/systemd/system/containerd.service.d/http_proxy.conf
@@ -85,7 +109,7 @@ EOF
 
 cat <<EOF > /etc/systemd/system/containerd.service.d/no_proxy.conf
 [Service]
-Environment="NO_PROXY=10.96.0.0/12,10.93.98.0/24,10.244.0.0/16,127.0.0.1"
+Environment="NO_PROXY=10.96.0.0/8,10.93.98.0/24,10.244.0.0/16,127.0.0.1/8"
 EOF
 
 systemctl daemon-reload
@@ -93,21 +117,36 @@ systemctl restart containerd
 systemctl show conatinerd --property Environment
 ```
 
-Pull Images (Optional: otherwise done by after issuing initialzing the cluster)
+### Pull Images (Optional: otherwise done by after issuing initialzing the cluster)
+The image installation step can be done itself by initializing the cluster. But we can also do it separately, as for this i have to use the proxy in ENV variable to pull the images. After pulling the images, I have unset those setted proxy variable to avoid any issue for the kubernetes cluster networking.
 ```bash
 kubeadm config images pull --v=5
 unset https_proxy
 unset http_proxy
 ```
 
-Initialize the kubernetes cluster
+### Initialize the kubernetes cluster
+Now we are ready to initialize the cluster, as we will provide the loadbalancer hostname/IP and also provided the CIDR. I have used this IP range because, I will use the calico service for networking. 
 ```bash
 kubeadm init --control-plane-endpoint="<LoadBalancer>:6443" --pod-network-cidr=192.168.0.0/16 --v=5
 ```
 
-Output with joining cluster commands
+Output with joining cluster commands - Don't worry: As it will be provided by the above command in its stdout 
 ```bash
+#command to join the cluster as control plane
 kubeadm join <LoadBalancer>:6443 --token <Token> \
         --discovery-token-ca-cert-hash sha256:<hashvalue> \
         --control-plane --certificate-key <hashvalue> --v=5
+
+#command to join the cluster as worker node
+kubeadm join <LoadBalancer>:6443 --token <Token> \
+        --discovery-token-ca-cert-hash sha256:<hashvalue> \
 ```
+
+### Calico Networking
+For kubernetes networking solution, we opted the calico. We downloaded its deployment YAML file and deployed it on the master node.
+
+
+## THE END 
+#### Happy Learning - ALHMD
+

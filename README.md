@@ -1,8 +1,8 @@
-# Multi-Master-HA-Kubernetes-Cluster-Setup
+# Multi-Master-HA-Kubernetes-Cluster-Setup :computer:
 In this show, we will look into that how can we deploy the Multi-Master HA Kubernetes cluster on CentOS/Redhat. 
 
 ## Little Background 
-For just little background before going to run the commands on the nodes. Lets talk about the architechure for the cluster setup. For this setup, we have utilized the 8 Virtual Machines having RedHat 7.9 installed on it. The VMs are created on the VMware ESxi Hypervisor. The distribution of VMs are as following:
+For just little background before going to run the commands on the nodes. Lets talk about the architechure for the cluster setup. In this setup, we have utilized the 8 Virtual Machines having RedHat 7.9 installed on it. The VMs are created on the VMware ESXi Hypervisor. The distribution of VMs are as following:
 
 1. 2 X HAProxy  
 2. 3 X Master Nodes
@@ -10,7 +10,7 @@ For just little background before going to run the commands on the nodes. Lets t
 
 In this setup, we tried to follow the best practices as recommended by the Kubernetes documentation. As we have the two ways to setup the High Available Kubernetes architechure, one of them is stacked architecure and other having seperate etcd cluster nodes. But for this setup, we make the things simple, as we follow to use the stacked architechure in which the etcd component is a part of same control plane having other components of the kubernetes. Furthermore, as the swap should be disabled in the kubernetes nodes, due to which we didn't configure the swap from scratch while creation of a VM. 
 
-We use the two nodes for HAProxy loadbalancer for Master nodes to ensure the HA at loadbalancer level too. All our pods will be run on the woker nodes. Why we need the three Master nodes? For little bit depth, its better to look into the documentation. We setup the cluster by using the kubeadm.
+We use the two nodes for HAProxy loadbalancer for Master nodes to ensure the HA at loadbalancer level too. All our pods will be run on the woker nodes. Why we need the three Master nodes? For little bit depth, its better to look into the kubernetes official documentation. We setup the cluster by using the kubeadm.
 
 
 #### Note: As human, we are vulnerable to make mistakes. My repositories are always open for the feedback or recommendation. Please suggest anything that help us to share with community.
@@ -21,6 +21,8 @@ We use the two nodes for HAProxy loadbalancer for Master nodes to ensure the HA 
 
 ### Pre-Req
 In our setup, the control plane and worker nodes are with same specifications and network too. All have their hosts entries (including Loadbalancers) in /etc/hosts file and they should be sync. Furthermore all the commands will be executed on a single control plane node and after initializing the cluster, the other nodes will join based on their category. 
+
+In case of the loadbalancer, we can use easily find tutorial or blog on that "How to setup the HAProxy as High Available with KeepAliveD" over the internet.
 
 ### Installing Container Runtime - Containerd
 At this moment, we will not discuss that why we proceed to use the containerD rather then the docker Engine. Its will be good learning oppertunity to read its detail in documentation. 
@@ -33,6 +35,7 @@ yum install -y http://mirror.centos.org/centos/7/extras/x86_64/Packages/containe
 yum install -y containerd.io
 ```
 ```bash   
+#setting up that which underline driver will we opt for resouces managment 
 containerd config default | tee /etc/containerd/config.toml
 sed -i 's/            SystemdCgroup = false/            SystemdCgroup = true/' /etc/containerd/config.toml
 systemctl restart containerd
@@ -146,6 +149,28 @@ kubeadm join <LoadBalancer>:6443 --token <Token> \
 ### Calico Networking
 For kubernetes networking solution, we opted the calico. We downloaded its deployment YAML file and deployed it on the master node.
 
+<h2 align="center">
+CONGRATS - I HOPE THE CLUSTER HAS BEEN SETUP :innocent:
+</h2>
+        
+### RESET THE NODE
+In case of any trouble happens on the control plane and worker node, I used this patch to reset the node
+```bash
+kubeadm reset --v=5
+
+yum remove kubeadm kubelet kubectl containerd -y
+yum remove container-selinux -y
+rm -rf /root/.kube
+rm -rf /etc/cni/net.d
+
+rm -rf /etc/kubernetes/
+rm -rf /etc/containerd
+rm -rf /etc/modules-load.d/containerd.conf 
+rm -rf /etc/systemd/system/containerd.service.d/
+rm -rf /etc/containerd/config.toml
+rm -rf /etc/systemd/system/kubelet.service.d/
+rm -rf /etc/sysconfig/kubelet
+```
 
 ## THE END 
 #### Happy Learning - ALHMD
